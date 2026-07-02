@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas Splitter</title>
+<style>
+  /* CommitMono via Fontsource CDN, with monospace fallbacks if offline */
+  @font-face{font-family:'CommitMono';font-style:normal;font-weight:400;font-display:swap;
+    src:url(https://cdn.jsdelivr.net/fontsource/fonts/commit-mono@latest/latin-400-normal.woff2) format('woff2');}
+  @font-face{font-family:'CommitMono';font-style:normal;font-weight:500;font-display:swap;
+    src:url(https://cdn.jsdelivr.net/fontsource/fonts/commit-mono@latest/latin-500-normal.woff2) format('woff2');}
+  @font-face{font-family:'CommitMono';font-style:normal;font-weight:700;font-display:swap;
+    src:url(https://cdn.jsdelivr.net/fontsource/fonts/commit-mono@latest/latin-700-normal.woff2) format('woff2');}
+
+  :root{
+    --ground:#0A0A0A;
+    --panel:#141414;
+    --panel-2:#1C1C1C;
+    --line:#2E2E2E;
+    --line-soft:#222222;
+    --text:#F0F0F0;
+    --muted:#9A9A9A;
+    --muted-2:#5F5F5F;
+    --hi:#FFFFFF;
+    --hi-soft:rgba(255,255,255,.10);
+    --mono:'CommitMono',ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
+    --radius:8px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ground);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .wrap{max-width:1240px;margin:0 auto;padding:28px 22px 80px}
+
+  header.top{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding-bottom:20px;border-bottom:1px solid var(--line)}
+  header.top h1{font-size:21px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0}
+  header.top p{margin:0;color:var(--muted);font-size:12.5px}
+
+  .layout{display:grid;grid-template-columns:1fr 372px;gap:22px;margin-top:24px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  /* viewer */
+  .viewer{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .drop{
+    min-height:340px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:48px 24px;cursor:pointer;transition:background .15s,border-color .15s;
+    border:1.5px dashed var(--line);margin:14px;border-radius:6px;
+  }
+  .drop.hot{background:var(--hi-soft);border-color:var(--hi)}
+  .drop svg{width:44px;height:44px;color:var(--muted-2);margin-bottom:14px}
+  .drop .big{font-size:14.5px;font-weight:500}
+  .drop .small{color:var(--muted);font-size:12px;margin-top:6px}
+
+  .stage{display:none;padding:14px}
+  .stage.show{display:block}
+  .canvas-shell{position:relative;background:
+      repeating-conic-gradient(#0e0e0e 0% 25%, #171717 0% 50%) 0 0/22px 22px;
+    border:1px solid var(--line);border-radius:4px;overflow:hidden;line-height:0}
+  canvas#preview{display:block;width:100%;height:auto}
+
+  .hud{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:12px;font-size:11.5px}
+  .hud .kv{color:var(--muted)}
+  .hud .kv b{color:var(--text);font-weight:500}
+  .hud .kv .u{color:var(--muted-2)}
+  .hud .warn{color:var(--text);width:100%;display:none;border-left:2px solid var(--hi);padding-left:9px;margin-top:2px}
+  .hud .warn.show{display:block}
+  .file-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}
+  .file-row .name{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .link-btn{background:none;border:none;color:var(--text);font-family:var(--mono);font-size:11.5px;cursor:pointer;padding:4px 2px;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--muted-2)}
+  .link-btn:hover{text-decoration-color:var(--hi)}
+
+  /* controls */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:6px 18px 18px}
+  .grp{padding:16px 0;border-bottom:1px solid var(--line-soft)}
+  .grp:last-child{border-bottom:none}
+  .grp > .lbl{display:flex;align-items:center;gap:8px;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:12px}
+  .grp > .lbl .idx{color:var(--muted-2);font-weight:500}
+
+  label.field{display:block;margin-bottom:11px}
+  label.field:last-child{margin-bottom:0}
+  label.field .cap{display:block;font-size:11.5px;color:var(--muted);margin-bottom:5px}
+  .dim-row{display:grid;grid-template-columns:1fr 26px 1fr;align-items:center;gap:8px}
+  .dim-row .x{text-align:center;color:var(--muted-2)}
+
+  input[type=text],input[type=number],select{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:13px;padding:9px 10px;border-radius:5px;outline:none;transition:border-color .12s
+  }
+  input:focus,select:focus{border-color:var(--hi)}
+  select{appearance:none;cursor:pointer;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%239A9A9A' stroke-width='1.8'><path d='M2 4l4 4 4-4'/></svg>");
+    background-repeat:no-repeat;background-position:right 11px center;padding-right:30px}
+
+  .presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .chip{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-family:var(--mono);font-size:12px;padding:5px 10px;border-radius:5px;cursor:pointer;transition:.12s}
+  .chip:hover{border-color:var(--muted);color:var(--text)}
+  .chip.on{background:var(--hi-soft);border-color:var(--hi);color:var(--hi)}
+
+  .hint{font-size:11px;color:var(--muted-2);margin-top:6px;line-height:1.45}
+  .hint.flag{color:var(--muted);border-left:2px solid var(--muted-2);padding-left:8px}
+
+  .example{font-size:11.5px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line-soft);border-radius:5px;padding:8px 10px;margin-top:8px}
+  .example b{color:var(--hi);font-weight:500}
+
+  .go{
+    width:100%;margin-top:18px;background:var(--text);color:#0A0A0A;border:none;font-family:var(--mono);
+    font-weight:700;font-size:13px;letter-spacing:.08em;text-transform:uppercase;padding:13px;border-radius:5px;cursor:pointer;transition:.12s
+  }
+  .go:hover{background:var(--hi)}
+  .go:disabled{background:var(--line);color:var(--muted-2);cursor:not-allowed}
+
+  /* results */
+  .results{margin-top:26px}
+  .results-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .results-head h2{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin:0}
+  .results-head .count{font-size:12px;color:var(--muted)}
+  .zip-btn{background:transparent;border:1px solid var(--hi);color:var(--text);font-family:var(--mono);font-weight:500;font-size:12.5px;padding:9px 16px;border-radius:5px;cursor:pointer;transition:.12s}
+  .zip-btn:hover{background:var(--hi-soft)}
+  .zip-btn:disabled{opacity:.5;cursor:wait}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .tile .thumb{background:repeating-conic-gradient(#0e0e0e 0% 25%, #171717 0% 50%) 0 0/16px 16px;line-height:0}
+  .tile .thumb img{display:block;width:100%;height:auto}
+  .tile .meta{padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .tile .meta .fn{font-size:10.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tile .meta a{color:var(--text);flex-shrink:0}
+  .tile .meta a:hover{color:var(--hi)}
+  .tile .meta a svg{width:16px;height:16px;display:block}
+
+  .progress{font-size:12px;color:var(--hi);margin-bottom:12px;display:none}
+  .progress.show{display:block}
+
+  a{color:var(--text)}
+  ::selection{background:var(--hi-soft)}
+  .go.alt{background:transparent;border:1px solid var(--hi);color:var(--text)}
+  .go.alt:hover{background:var(--hi-soft)}
+  .go.alt:disabled{background:transparent;border-color:var(--line);color:var(--muted-2);cursor:not-allowed}
+  .cap b{color:var(--text);font-weight:500}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;background:var(--line);border-radius:3px;outline:none;padding:0;margin:8px 0 2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:var(--text);cursor:pointer;border:none}
+  input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--text);cursor:pointer;border:none}
+  input[type=range]:focus::-webkit-slider-thumb{box-shadow:0 0 0 3px var(--hi-soft)}
+  .gifsec{margin-top:26px}
+  .gifwrap{background:repeating-conic-gradient(#0e0e0e 0% 25%, #171717 0% 50%) 0 0/22px 22px;border:1px solid var(--line);border-radius:6px;padding:16px;display:flex;justify-content:center;line-height:0}
+  .gifwrap img{max-width:100%;height:auto;border:1px solid var(--line)}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Atlas Splitter</h1>
+    <p>slice a texture atlas into a grid of tiles — local, no upload</p>
+  </header>
+
+  <div class="layout">
+    <section class="viewer" aria-label="Atlas viewer">
+      <div id="drop" class="drop" tabindex="0" role="button" aria-label="Drop an image or browse">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18M15 3v18M3 15h18"/>
+        </svg>
+        <div class="big">Drop a texture atlas here</div>
+        <div class="small">or click to browse · PNG, JPG, WebP · any resolution</div>
+      </div>
+
+      <div id="stage" class="stage">
+        <div class="canvas-shell"><canvas id="preview"></canvas></div>
+        <div class="hud">
+          <span class="kv">source <b id="hud-src">—</b></span>
+          <span class="kv">grid <b id="hud-grid">—</b></span>
+          <span class="kv">tile <b id="hud-tile">—</b></span>
+          <span class="kv">tiles <b id="hud-count">—</b></span>
+          <span class="warn" id="hud-warn"></span>
+        </div>
+        <div class="file-row">
+          <span class="name" id="fname">—</span>
+          <button class="link-btn" id="change">Change image</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Split settings">
+      <div class="grp">
+        <div class="lbl"><span class="idx">01</span> Grid</div>
+        <div class="presets" id="presets">
+          <button class="chip" data-c="2" data-r="2">2×2</button>
+          <button class="chip" data-c="4" data-r="4">4×4</button>
+          <button class="chip" data-c="8" data-r="8">8×8</button>
+          <button class="chip" data-c="16" data-r="16">16×16</button>
+        </div>
+        <div class="dim-row">
+          <label class="field" style="margin:0"><span class="cap">Columns</span>
+            <input type="number" id="cols" min="1" max="64" value="4"></label>
+          <span class="x">×</span>
+          <label class="field" style="margin:0"><span class="cap">Rows</span>
+            <input type="number" id="rows" min="1" max="64" value="4"></label>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl"><span class="idx">02</span> Output size</div>
+        <label class="field"><span class="cap">Per-tile size</span>
+          <select id="sizeMode">
+            <option value="source">Source tile size (keep native)</option>
+            <option value="128">128 × 128</option>
+            <option value="256">256 × 256</option>
+            <option value="512">512 × 512</option>
+            <option value="1024">1024 × 1024</option>
+            <option value="2048">2048 × 2048</option>
+            <option value="4096">4096 × 4096</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </label>
+        <div id="customSize" style="display:none">
+          <div class="dim-row">
+            <label class="field" style="margin:0"><span class="cap">Width</span>
+              <input type="number" id="outW" min="1" max="16384" value="1024"></label>
+            <span class="x">×</span>
+            <label class="field" style="margin:0"><span class="cap">Height</span>
+              <input type="number" id="outH" min="1" max="16384" value="1024"></label>
+          </div>
+        </div>
+        <label class="field"><span class="cap">Resampling</span>
+          <select id="resample">
+            <option value="high">Smooth (high quality)</option>
+            <option value="pixelated">Nearest (pixel art)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="grp">
+        <div class="lbl"><span class="idx">03</span> Color space</div>
+        <label class="field"><span class="cap">Conversion</span>
+          <select id="colorMode">
+            <option value="none">Passthrough (keep original)</option>
+            <option value="s2l">sRGB → Linear</option>
+            <option value="l2s">Linear → sRGB</option>
+            <option value="gamma">Custom gamma…</option>
+          </select>
+        </label>
+        <label class="field" id="gammaField" style="display:none"><span class="cap">Gamma (γ)</span>
+          <input type="number" id="gamma" min="0.1" max="5" step="0.1" value="2.2"></label>
+        <div class="hint" id="colorHint">Pixels are exported exactly as they appear.</div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl"><span class="idx">04</span> File names</div>
+        <label class="field"><span class="cap">Base name</span>
+          <input type="text" id="base" value="atlas" spellcheck="false"></label>
+        <label class="field"><span class="cap">Naming scheme</span>
+          <select id="scheme">
+            <option value="rowcol">base_r{row}_c{col}</option>
+            <option value="index">base_{index} (row-major)</option>
+            <option value="colrow">base_c{col}_r{row}</option>
+          </select>
+        </label>
+        <div class="example">e.g. <b id="exName">atlas_r0_c0.png</b></div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl"><span class="idx">05</span> Flipbook GIF</div>
+        <label class="field"><span class="cap">Frame rate — <b id="fpsVal">12</b> fps</span>
+          <input type="range" id="fps" min="1" max="60" value="12"></label>
+        <label class="field"><span class="cap">GIF frame size</span>
+          <select id="gifSize">
+            <option value="128">128 px</option>
+            <option value="256" selected>256 px</option>
+            <option value="512">512 px</option>
+            <option value="match">Match tile size (slow)</option>
+          </select>
+        </label>
+        <button class="go alt" id="gifBtn" disabled>Render flipbook GIF</button>
+        <div class="hint" id="gifHint">Frames play in row-major order. GIF timing is limited to 1/100s, so very high fps can play slightly slower in some viewers.</div>
+      </div>
+
+      <button class="go" id="go" disabled>Split atlas</button>
+    </aside>
+  </div>
+
+  <section class="gifsec" id="gifSection" style="display:none">
+    <div class="results-head">
+      <div><h2>Flipbook</h2> <span class="count" id="gifCount"></span></div>
+      <button class="zip-btn" id="gifDl">Download GIF</button>
+    </div>
+    <div class="progress" id="gifProgress"></div>
+    <div class="gifwrap"><img id="gifImg" alt="flipbook preview"></div>
+  </section>
+
+  <section class="results" id="results" style="display:none">
+    <div class="results-head">
+      <div>
+        <h2>Tiles</h2>
+        <span class="count" id="rcount"></span>
+      </div>
+      <button class="zip-btn" id="zip">Download all (ZIP)</button>
+    </div>
+    <div class="progress" id="progress"></div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+</div>
+
+<input type="file" id="file" accept="image/*" hidden>
+
+<script>
+/* Self-contained animated GIF89a encoder.
+   NeuQuant quantizer (A. Dekker) + LZW (Kevin Weiner) — public-domain ports.
+   encodeGIF(frames, w, h, delayMs, opts) -> Uint8Array
+   frames: array of RGBA byte arrays (canvas ImageData.data), all w*h*4. */
+(function(global){
+  "use strict";
+
+  function ByteArray(){ this.data=new Uint8Array(8192); this.len=0; }
+  ByteArray.prototype._ensure=function(n){
+    if(this.len+n>this.data.length){ var cap=this.data.length; while(cap<this.len+n) cap*=2;
+      var d=new Uint8Array(cap); d.set(this.data.subarray(0,this.len)); this.data=d; } };
+  ByteArray.prototype.writeByte=function(b){ this._ensure(1); this.data[this.len++]=b&0xff; };
+  ByteArray.prototype.writeBytes=function(arr,off,len){ off=off||0; len=(len==null?arr.length:len);
+    this._ensure(len); for(var i=0;i<len;i++) this.data[this.len++]=arr[off+i]&0xff; };
+  ByteArray.prototype.writeUTF=function(s){ this._ensure(s.length);
+    for(var i=0;i<s.length;i++) this.data[this.len++]=s.charCodeAt(i)&0xff; };
+  ByteArray.prototype.toArray=function(){ return this.data.subarray(0,this.len); };
+
+  /* ---------------- NeuQuant ---------------- */
+  function NeuQuant(pixels, samplefac){
+    var netsize=256, maxnetpos=netsize-1;
+    var netbiasshift=4, ncycles=100;
+    var intbiasshift=16, intbias=(1<<intbiasshift);
+    var gammashift=10, betashift=10;
+    var beta=(intbias>>betashift), betagamma=(intbias<<(gammashift-betashift));
+    var initrad=(netsize>>3);
+    var radiusbiasshift=6, radiusbias=(1<<radiusbiasshift);
+    var initradius=(initrad*radiusbias), radiusdec=30;
+    var alphabiasshift=10, initalpha=(1<<alphabiasshift);
+    var radbiasshift=8, radbias=(1<<radbiasshift);
+    var alpharadbshift=(alphabiasshift+radbiasshift), alpharadbias=(1<<alpharadbshift);
+    var prime1=499, prime2=491, prime3=487, prime4=503, minpicturebytes=(3*prime4);
+
+    var network, netindex=new Int32Array(256), bias=new Int32Array(netsize),
+        freq=new Int32Array(netsize), radpower=new Int32Array(netsize>>3);
+
+    function init(){
+      network=[]; var i,v;
+      for(i=0;i<netsize;i++){ v=(i<<(netbiasshift+8))/netsize; network[i]=[v,v,v,0];
+        freq[i]=intbias/netsize; bias[i]=0; }
+    }
+    function unbiasnet(){
+      for(var i=0;i<netsize;i++){ network[i][0]>>=netbiasshift; network[i][1]>>=netbiasshift;
+        network[i][2]>>=netbiasshift; network[i][3]=i; }
+    }
+    function altersingle(alpha,i,b,g,r){
+      network[i][0]-=(alpha*(network[i][0]-b))/initalpha;
+      network[i][1]-=(alpha*(network[i][1]-g))/initalpha;
+      network[i][2]-=(alpha*(network[i][2]-r))/initalpha;
+    }
+    function alterneigh(rad,i,b,g,r){
+      var lo=Math.abs(i-rad), hi=Math.min(i+rad,netsize);
+      var j=i+1,k=i-1,m=1,p,a;
+      while((j<hi)||(k>lo)){
+        a=radpower[m++];
+        if(j<hi){ p=network[j++]; p[0]-=(a*(p[0]-b))/alpharadbias; p[1]-=(a*(p[1]-g))/alpharadbias; p[2]-=(a*(p[2]-r))/alpharadbias; }
+        if(k>lo){ p=network[k--]; p[0]-=(a*(p[0]-b))/alpharadbias; p[1]-=(a*(p[1]-g))/alpharadbias; p[2]-=(a*(p[2]-r))/alpharadbias; }
+      }
+    }
+    function contest(b,g,r){
+      var bestd=~(1<<31), bestbiasd=bestd, bestpos=-1, bestbiaspos=-1;
+      var i,n,dist,biasdist,betafreq;
+      for(i=0;i<netsize;i++){
+        n=network[i];
+        dist=Math.abs(n[0]-b)+Math.abs(n[1]-g)+Math.abs(n[2]-r);
+        if(dist<bestd){ bestd=dist; bestpos=i; }
+        biasdist=dist-((bias[i])>>(intbiasshift-netbiasshift));
+        if(biasdist<bestbiasd){ bestbiasd=biasdist; bestbiaspos=i; }
+        betafreq=(freq[i]>>betashift); freq[i]-=betafreq; bias[i]+=(betafreq<<gammashift);
+      }
+      freq[bestpos]+=beta; bias[bestpos]-=betagamma; return bestbiaspos;
+    }
+    function inxbuild(){
+      var i,j,p,q,smallpos,smallval,previouscol=0,startpos=0;
+      for(i=0;i<netsize;i++){
+        p=network[i]; smallpos=i; smallval=p[1];
+        for(j=i+1;j<netsize;j++){ q=network[j]; if(q[1]<smallval){ smallpos=j; smallval=q[1]; } }
+        q=network[smallpos];
+        if(i!=smallpos){ j=q[0];q[0]=p[0];p[0]=j; j=q[1];q[1]=p[1];p[1]=j; j=q[2];q[2]=p[2];p[2]=j; j=q[3];q[3]=p[3];p[3]=j; }
+        if(smallval!=previouscol){
+          netindex[previouscol]=(startpos+i)>>1;
+          for(j=previouscol+1;j<smallval;j++) netindex[j]=i;
+          previouscol=smallval; startpos=i;
+        }
+      }
+      netindex[previouscol]=(startpos+maxnetpos)>>1;
+      for(j=previouscol+1;j<256;j++) netindex[j]=maxnetpos;
+    }
+    function inxsearch(b,g,r){
+      var a,p,dist,bestd=1000,best=-1;
+      var i=netindex[g], j=i-1;
+      while((i<netsize)||(j>=0)){
+        if(i<netsize){ p=network[i]; dist=p[1]-g;
+          if(dist>=bestd) i=netsize;
+          else { i++; if(dist<0)dist=-dist; a=p[0]-b; if(a<0)a=-a; dist+=a;
+            if(dist<bestd){ a=p[2]-r; if(a<0)a=-a; dist+=a; if(dist<bestd){ bestd=dist; best=p[3]; } } } }
+        if(j>=0){ p=network[j]; dist=g-p[1];
+          if(dist>=bestd) j=-1;
+          else { j--; if(dist<0)dist=-dist; a=p[0]-b; if(a<0)a=-a; dist+=a;
+            if(dist<bestd){ a=p[2]-r; if(a<0)a=-a; dist+=a; if(dist<bestd){ bestd=dist; best=p[3]; } } } }
+      }
+      return best;
+    }
+    function learn(){
+      var i,j,b,g,r,rad,alpha,step,delta,samplepixels;
+      var p=pixels, lengthcount=p.length, alphadec=30+((samplefac-1)/3), pix=0, lim=lengthcount;
+      samplepixels=lengthcount/(3*samplefac);
+      delta=(samplepixels/ncycles)|0; alpha=initalpha; var radius=initradius;
+      rad=radius>>radiusbiasshift; if(rad<=1)rad=0;
+      for(i=0;i<rad;i++) radpower[i]=alpha*(((rad*rad-i*i)*radbias)/(rad*rad));
+      if(lengthcount<minpicturebytes) step=3;
+      else if((lengthcount%prime1)!==0) step=3*prime1;
+      else if((lengthcount%prime2)!==0) step=3*prime2;
+      else if((lengthcount%prime3)!==0) step=3*prime3;
+      else step=3*prime4;
+      i=0;
+      while(i<samplepixels){
+        b=(p[pix]&0xff)<<netbiasshift; g=(p[pix+1]&0xff)<<netbiasshift; r=(p[pix+2]&0xff)<<netbiasshift;
+        j=contest(b,g,r); altersingle(alpha,j,b,g,r); if(rad!==0) alterneigh(rad,j,b,g,r);
+        pix+=step; if(pix>=lim) pix-=lengthcount;
+        i++; if(delta===0) delta=1;
+        if(i%delta===0){ alpha-=alpha/alphadec; radius-=radius/radiusdec; rad=radius>>radiusbiasshift; if(rad<=1)rad=0;
+          for(j=0;j<rad;j++) radpower[j]=alpha*(((rad*rad-j*j)*radbias)/(rad*rad)); }
+      }
+    }
+    this.buildColormap=function(){ init(); learn(); unbiasnet(); inxbuild(); };
+    this.getColormap=function(){
+      var map=[], index=[], i;
+      for(i=0;i<netsize;i++) index[network[i][3]]=i;
+      var k=0;
+      for(var l=0;l<netsize;l++){ var j=index[l]; map[k++]=network[j][0]&0xff; map[k++]=network[j][1]&0xff; map[k++]=network[j][2]&0xff; }
+      return map;
+    };
+    this.lookupRGB=inxsearch;
+  }
+
+  /* ---------------- LZW ---------------- */
+  function LZWEncoder(width,height,pixels,color_depth){
+    var EOF=-1, imgW=width, imgH=height, pixAry=pixels;
+    var initCodeSize=Math.max(2,color_depth);
+    var accum=new Uint8Array(256), htab=new Int32Array(5003), codetab=new Int32Array(5003);
+    var cur_accum=0, cur_bits=0, a_count=0, free_ent=0, maxcode, clear_flg=false;
+    var g_init_bits, ClearCode, EOFCode, remaining, curPixel, n_bits;
+    var BITS=12, HSIZE=5003;
+    var masks=[0x0000,0x0001,0x0003,0x0007,0x000F,0x001F,0x003F,0x007F,0x00FF,0x01FF,0x03FF,0x07FF,0x0FFF,0x1FFF,0x3FFF,0x7FFF,0xFFFF];
+    function MAXCODE(nb){ return (1<<nb)-1; }
+    function char_out(c,outs){ accum[a_count++]=c; if(a_count>=254) flush_char(outs); }
+    function flush_char(outs){ if(a_count>0){ outs.writeByte(a_count); outs.writeBytes(accum,0,a_count); a_count=0; } }
+    function nextPixel(){ if(remaining===0) return EOF; remaining--; return pixAry[curPixel++]&0xff; }
+    function cl_hash(hsize){ for(var i=0;i<hsize;i++) htab[i]=-1; }
+    function cl_block(outs){ cl_hash(HSIZE); free_ent=ClearCode+2; clear_flg=true; output(ClearCode,outs); }
+    function output(code,outs){
+      cur_accum &= masks[cur_bits];
+      if(cur_bits>0) cur_accum |= (code<<cur_bits); else cur_accum=code;
+      cur_bits+=n_bits;
+      while(cur_bits>=8){ char_out((cur_accum&0xff),outs); cur_accum>>=8; cur_bits-=8; }
+      if(free_ent>maxcode||clear_flg){
+        if(clear_flg){ maxcode=MAXCODE(n_bits=g_init_bits); clear_flg=false; }
+        else { ++n_bits; if(n_bits==BITS) maxcode=1<<BITS; else maxcode=MAXCODE(n_bits); }
+      }
+      if(code==EOFCode){
+        while(cur_bits>0){ char_out((cur_accum&0xff),outs); cur_accum>>=8; cur_bits-=8; }
+        flush_char(outs);
+      }
+    }
+    function compress(init_bits,outs){
+      var fcode,c,i,ent,disp,hsize_reg,hshift;
+      g_init_bits=init_bits; clear_flg=false; n_bits=g_init_bits; maxcode=MAXCODE(n_bits);
+      ClearCode=1<<(init_bits-1); EOFCode=ClearCode+1; free_ent=ClearCode+2; a_count=0;
+      ent=nextPixel(); hshift=0;
+      for(fcode=HSIZE;fcode<65536;fcode*=2) ++hshift;
+      hshift=8-hshift; hsize_reg=HSIZE; cl_hash(hsize_reg); output(ClearCode,outs);
+      outer: while((c=nextPixel())!=EOF){
+        fcode=(c<<BITS)+ent; i=(c<<hshift)^ent;
+        if(htab[i]===fcode){ ent=codetab[i]; continue; }
+        else if(htab[i]>=0){ disp=hsize_reg-i; if(i===0)disp=1;
+          do{ if((i-=disp)<0) i+=hsize_reg; if(htab[i]===fcode){ ent=codetab[i]; continue outer; } }while(htab[i]>=0);
+        }
+        output(ent,outs); ent=c;
+        if(free_ent<(1<<BITS)){ codetab[i]=free_ent++; htab[i]=fcode; } else cl_block(outs);
+      }
+      output(ent,outs); output(EOFCode,outs);
+    }
+    this.encode=function(outs){
+      outs.writeByte(initCodeSize); remaining=imgW*imgH; curPixel=0;
+      compress(initCodeSize+1,outs); outs.writeByte(0);
+    };
+  }
+
+  /* ---------------- GIF writer ---------------- */
+  function GIFEncoder(w,h){
+    var out=new ByteArray(), delay=0, repeat=0, sample=10;
+    var colorTab=null, indexedPixels=null, colorDepth, palSize=7, firstFrame=true, image=null;
+
+    this.out=out;
+    this.setDelay=function(ms){ delay=Math.round(ms/10); };  // 1/100 sec
+    this.setRepeat=function(r){ repeat=r; };
+    this.setQuality=function(q){ sample=q<1?1:q; };
+    this.start=function(){ out.writeUTF("GIF89a"); };
+
+    function writeShort(v){ out.writeByte(v&0xff); out.writeByte((v>>8)&0xff); }
+    function getImagePixels(){
+      var pixels=new Uint8Array(w*h*3), count=0, d=image;
+      for(var i=0;i<w*h;i++){ pixels[count++]=d[i*4]; pixels[count++]=d[i*4+1]; pixels[count++]=d[i*4+2]; }
+      return pixels;
+    }
+    function analyzePixels(){
+      var pixels=getImagePixels(), nPix=pixels.length/3;
+      indexedPixels=new Uint8Array(nPix);
+      var nq=new NeuQuant(pixels,sample); nq.buildColormap(); colorTab=nq.getColormap();
+      var k=0;
+      for(var j=0;j<nPix;j++){ var idx=nq.lookupRGB(pixels[k++]&0xff,pixels[k++]&0xff,pixels[k++]&0xff); indexedPixels[j]=idx; }
+      colorDepth=8; palSize=7;
+    }
+    function writeLSD(){ writeShort(w); writeShort(h); out.writeByte(0x80|0x70|palSize); out.writeByte(0); out.writeByte(0); }
+    function writePalette(){ out.writeBytes(colorTab,0,colorTab.length); var n=(3*256)-colorTab.length; for(var i=0;i<n;i++) out.writeByte(0); }
+    function writeNetscapeExt(){ out.writeByte(0x21); out.writeByte(0xff); out.writeByte(11); out.writeUTF("NETSCAPE2.0"); out.writeByte(3); out.writeByte(1); writeShort(repeat); out.writeByte(0); }
+    function writeGraphicCtrlExt(){ out.writeByte(0x21); out.writeByte(0xf9); out.writeByte(4); out.writeByte(0); writeShort(delay); out.writeByte(0); out.writeByte(0); }
+    function writeImageDesc(){ out.writeByte(0x2c); writeShort(0); writeShort(0); writeShort(w); writeShort(h);
+      if(firstFrame) out.writeByte(0); else out.writeByte(0x80|palSize); }
+    function writePixels(){ var enc=new LZWEncoder(w,h,indexedPixels,colorDepth); enc.encode(out); }
+
+    this.addFrame=function(rgba){
+      image=rgba; analyzePixels();
+      if(firstFrame){ writeLSD(); writePalette(); if(repeat>=0) writeNetscapeExt(); }
+      writeGraphicCtrlExt(); writeImageDesc();
+      if(!firstFrame) writePalette();
+      writePixels(); firstFrame=false;
+    };
+    this.finish=function(){ out.writeByte(0x3b); };
+  }
+
+  function encodeGIF(frames,w,h,delayMs,opts){
+    opts=opts||{};
+    var enc=new GIFEncoder(w,h);
+    enc.setRepeat(opts.repeat==null?0:opts.repeat);
+    enc.setDelay(delayMs);
+    enc.setQuality(opts.sample||10);
+    enc.start();
+    for(var i=0;i<frames.length;i++) enc.addFrame(frames[i]);
+    enc.finish();
+    return enc.out.toArray();
+  }
+
+  global.encodeGIF=encodeGIF;
+  global.GIFEncoder=GIFEncoder;
+  if(typeof module!=="undefined"&&module.exports) module.exports={encodeGIF:encodeGIF,GIFEncoder:GIFEncoder};
+})(typeof self!=="undefined"?self:(typeof globalThis!=="undefined"?globalThis:this));
+
+</script>
+
+<script>
+(function(){
+  "use strict";
+  const $ = s => document.querySelector(s);
+  let img = null, imgName = "", tiles = [];
+
+  const els = {
+    drop:$("#drop"), file:$("#file"), stage:$("#stage"), fname:$("#fname"), change:$("#change"),
+    canvas:$("#preview"), cols:$("#cols"), rows:$("#rows"),
+    sizeMode:$("#sizeMode"), customSize:$("#customSize"), outW:$("#outW"), outH:$("#outH"),
+    resample:$("#resample"), colorMode:$("#colorMode"), gammaField:$("#gammaField"), gamma:$("#gamma"),
+    colorHint:$("#colorHint"), base:$("#base"), scheme:$("#scheme"), exName:$("#exName"),
+    go:$("#go"), results:$("#results"), tilesEl:$("#tiles"), rcount:$("#rcount"),
+    zip:$("#zip"), progress:$("#progress"),
+    hudSrc:$("#hud-src"), hudGrid:$("#hud-grid"), hudTile:$("#hud-tile"), hudCount:$("#hud-count"), hudWarn:$("#hud-warn")
+  };
+
+  Object.assign(els, {
+    fps:$("#fps"), fpsVal:$("#fpsVal"), gifSize:$("#gifSize"), gifBtn:$("#gifBtn"), gifHint:$("#gifHint"),
+    gifSection:$("#gifSection"), gifCount:$("#gifCount"), gifDl:$("#gifDl"), gifProgress:$("#gifProgress"), gifImg:$("#gifImg")
+  });
+
+  /* ---------- file loading (data URL — robust across sandboxes) ---------- */
+  function openFile(f){
+    if(!f) return;
+    if(!f.type.startsWith("image/")){ alert("Please choose an image file (PNG, JPG, or WebP)."); return; }
+    const reader = new FileReader();
+    reader.onerror = () => alert("Couldn't read that file. Please try again.");
+    reader.onload = () => {
+      const im = new Image();
+      im.onload = () => {
+        img = im; imgName = f.name; els.fname.textContent = f.name;
+        els.drop.style.display="none"; els.stage.classList.add("show");
+        els.go.disabled=false; els.gifBtn.disabled=false; drawPreview();
+      };
+      im.onerror = () => alert("That image couldn't be decoded. Try a different PNG, JPG, or WebP.");
+      im.src = reader.result;
+    };
+    reader.readAsDataURL(f);
+    els.file.value = "";
+  }
+  els.drop.addEventListener("click", ()=>els.file.click());
+  els.drop.addEventListener("keydown", e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();els.file.click();} });
+  els.change.addEventListener("click", ()=>els.file.click());
+  els.file.addEventListener("change", e=>openFile(e.target.files[0]));
+  ["dragenter","dragover"].forEach(ev=>els.drop.addEventListener(ev,e=>{e.preventDefault();els.drop.classList.add("hot");}));
+  ["dragleave","drop"].forEach(ev=>els.drop.addEventListener(ev,e=>{e.preventDefault();els.drop.classList.remove("hot");}));
+  els.drop.addEventListener("drop", e=>{ if(e.dataTransfer.files[0]) openFile(e.dataTransfer.files[0]); });
+  els.stage.addEventListener("dragover", e=>e.preventDefault());
+  els.stage.addEventListener("drop", e=>{ e.preventDefault(); if(e.dataTransfer.files[0]) openFile(e.dataTransfer.files[0]); });
+
+  /* ---------- grid math ---------- */
+  const clampInt = (v,min,max)=>Math.max(min,Math.min(max,Math.round(v||0)));
+  function gridDims(){ return { c:clampInt(els.cols.value,1,64), r:clampInt(els.rows.value,1,64) }; }
+  const bound = (i,total,n)=>Math.round(i*total/n);
+
+  /* ---------- preview with grid overlay ---------- */
+  function drawPreview(){
+    if(!img) return;
+    const {c,r} = gridDims();
+    const shellW = els.canvas.parentElement.clientWidth || 600;
+    const scale = Math.min(1, shellW/img.width);
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = Math.round(img.width*scale), cssH = Math.round(img.height*scale);
+    els.canvas.style.width = cssW+"px"; els.canvas.style.height = cssH+"px";
+    els.canvas.width = Math.round(cssW*dpr); els.canvas.height = Math.round(cssH*dpr);
+    const ctx = els.canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality="medium";
+    ctx.clearRect(0,0,cssW,cssH);
+    ctx.drawImage(img,0,0,cssW,cssH);
+    ctx.lineWidth = 1;
+    for(let i=1;i<c;i++){ const x=Math.round(bound(i,img.width,c)*scale)+.5;
+      ctx.strokeStyle="rgba(255,255,255,.55)"; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,cssH); ctx.stroke(); }
+    for(let i=1;i<r;i++){ const y=Math.round(bound(i,img.height,r)*scale)+.5;
+      ctx.strokeStyle="rgba(255,255,255,.55)"; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cssW,y); ctx.stroke(); }
+    ctx.strokeStyle="rgba(255,255,255,.85)"; ctx.strokeRect(.5,.5,cssW-1,cssH-1);
+    updateHud(c,r);
+  }
+
+  function updateHud(c,r){
+    els.hudSrc.innerHTML = img.width+' <span class="u">×</span> '+img.height+' <span class="u">px</span>';
+    els.hudGrid.textContent = c+" × "+r;
+    const tw = img.width/c, th = img.height/r;
+    els.hudTile.innerHTML = Math.round(tw)+' <span class="u">×</span> '+Math.round(th)+' <span class="u">px</span>';
+    els.hudCount.textContent = c*r;
+    const notDiv = (img.width % c !== 0) || (img.height % r !== 0);
+    if(notDiv){
+      els.hudWarn.classList.add("show");
+      els.hudWarn.textContent = "! "+img.width+"×"+img.height+" isn't evenly divisible by "+c+"×"+r+" — tile edges snap to the nearest pixel, so some tiles differ by 1px.";
+    } else els.hudWarn.classList.remove("show");
+    updateExample();
+  }
+
+  window.addEventListener("resize", ()=>{ if(img) drawPreview(); });
+
+  /* ---------- naming ---------- */
+  function pad(n,width){ return String(n).padStart(width,"0"); }
+  function tileName(base,scheme,row,col,idx,rows,cols){
+    const rw = String(rows-1).length, cw = String(cols-1).length, iw = String(rows*cols-1).length;
+    base = (base||"atlas").trim().replace(/[\/\\:*?"<>|]/g,"_") || "atlas";
+    if(scheme==="index") return base+"_"+pad(idx,iw)+".png";
+    if(scheme==="colrow") return base+"_c"+pad(col,cw)+"_r"+pad(row,rw)+".png";
+    return base+"_r"+pad(row,rw)+"_c"+pad(col,cw)+".png";
+  }
+  function updateExample(){
+    const {c,r}=gridDims();
+    els.exName.textContent = tileName(els.base.value, els.scheme.value, 0,0,0, r,c);
+  }
+
+  /* ---------- color conversion ---------- */
+  function buildLUT(mode,gamma){
+    const lut = new Uint8ClampedArray(256);
+    for(let i=0;i<256;i++){
+      const v = i/255; let o = v;
+      if(mode==="s2l") o = v<=0.04045 ? v/12.92 : Math.pow((v+0.055)/1.055,2.4);
+      else if(mode==="l2s") o = v<=0.0031308 ? v*12.92 : 1.055*Math.pow(v,1/2.4)-0.055;
+      else if(mode==="gamma") o = Math.pow(v, gamma);
+      lut[i] = Math.round(Math.max(0,Math.min(1,o))*255);
+    }
+    return lut;
+  }
+  function applyColor(ctx,w,h,mode,gamma){
+    if(mode==="none") return;
+    const lut = buildLUT(mode,gamma);
+    const d = ctx.getImageData(0,0,w,h), px = d.data;
+    for(let i=0;i<px.length;i+=4){ px[i]=lut[px[i]]; px[i+1]=lut[px[i+1]]; px[i+2]=lut[px[i+2]]; }
+    ctx.putImageData(d,0,0);
+  }
+
+  /* ---------- split ---------- */
+  function outSize(srcW,srcH){
+    const m = els.sizeMode.value;
+    if(m==="source") return [srcW,srcH];
+    if(m==="custom") return [clampInt(els.outW.value,1,16384), clampInt(els.outH.value,1,16384)];
+    const n = parseInt(m,10); return [n,n];
+  }
+  const toBlob = cv => new Promise(res=>cv.toBlob(res,"image/png"));
+
+  async function split(){
+    if(!img) return;
+    els.go.disabled=true; els.zip.disabled=true;
+    tiles.forEach(t=>URL.revokeObjectURL(t.url)); tiles=[];
+    els.tilesEl.innerHTML=""; els.results.style.display="block";
+    const {c,r}=gridDims();
+    const mode=els.colorMode.value, gamma=parseFloat(els.gamma.value)||2.2;
+    const smooth = els.resample.value==="high";
+    els.progress.classList.add("show");
+    const total=c*r;
+
+    for(let row=0;row<r;row++){
+      for(let col=0;col<c;col++){
+        const idx=row*c+col;
+        const sx=bound(col,img.width,c), sxN=bound(col+1,img.width,c);
+        const sy=bound(row,img.height,r), syN=bound(row+1,img.height,r);
+        const sw=sxN-sx, sh=syN-sy;
+        const [ow,oh]=outSize(sw,sh);
+        const cv=document.createElement("canvas"); cv.width=ow; cv.height=oh;
+        const cx=cv.getContext("2d");
+        cx.imageSmoothingEnabled=smooth; cx.imageSmoothingQuality="high";
+        cx.drawImage(img, sx,sy,sw,sh, 0,0,ow,oh);
+        applyColor(cx,ow,oh,mode,gamma);
+        const blob=await toBlob(cv);
+        const url=URL.createObjectURL(blob);
+        const thumb=makeThumb(cv);                 // small data URL just for on-screen preview
+        const name=tileName(els.base.value, els.scheme.value, row,col,idx, r,c);
+        tiles.push({name,blob,url,w:ow,h:oh});
+        addTile(name,url,thumb);
+        els.progress.textContent="Rendering "+(idx+1)+" / "+total;
+        if(idx%8===0) await new Promise(rq=>requestAnimationFrame(rq));
+      }
+    }
+    els.progress.classList.remove("show");
+    els.rcount.textContent = tiles.length+" tiles · "+tiles[0].w+"×"+tiles[0].h+" px · PNG";
+    els.go.disabled=false; els.zip.disabled=false;
+    els.results.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
+  const dlIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 11l5 5 5-5M4 21h16"/></svg>';
+  function makeThumb(cv){
+    const max=240;
+    const s=Math.min(1, max/Math.max(cv.width,cv.height));
+    const tw=Math.max(1,Math.round(cv.width*s)), th=Math.max(1,Math.round(cv.height*s));
+    const tc=document.createElement("canvas"); tc.width=tw; tc.height=th;
+    const tx=tc.getContext("2d"); tx.imageSmoothingEnabled=true; tx.imageSmoothingQuality="medium";
+    tx.drawImage(cv,0,0,tw,th);
+    return tc.toDataURL("image/png");
+  }
+  function addTile(name,url,thumb){
+    const el=document.createElement("div"); el.className="tile";
+    el.innerHTML = '<div class="thumb"><img src="'+thumb+'" alt="'+name+'"></div>'+
+      '<div class="meta"><span class="fn" title="'+name+'">'+name+'</span>'+
+      '<a href="'+url+'" download="'+name+'" title="Download '+name+'">'+dlIcon+'</a></div>';
+    els.tilesEl.appendChild(el);
+  }
+
+  /* ---------- self-contained ZIP (store / no compression) ---------- */
+  const crcTable = (function(){ const t=new Uint32Array(256);
+    for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = (c&1)? (0xEDB88320 ^ (c>>>1)) : (c>>>1); t[n]=c>>>0; } return t; })();
+  function crc32(buf){ let c=0xFFFFFFFF; for(let i=0;i<buf.length;i++) c = crcTable[(c ^ buf[i]) & 0xFF] ^ (c>>>8); return (c ^ 0xFFFFFFFF)>>>0; }
+
+  async function buildZip(files){
+    const enc = new TextEncoder();
+    const u16=v=>[v&255,(v>>8)&255];
+    const u32=v=>[v&255,(v>>8)&255,(v>>16)&255,(v>>24)&255];
+    const parts=[]; const central=[]; let offset=0;
+    const dosTime=0, dosDate=0x21; // 1980-01-01
+    for(const f of files){
+      const nameBytes = enc.encode(f.name);
+      const data = new Uint8Array(await f.blob.arrayBuffer());
+      const crc = crc32(data), size = data.length;
+      const local = [].concat(u32(0x04034b50),u16(20),u16(0),u16(0),u16(dosTime),u16(dosDate),
+        u32(crc),u32(size),u32(size),u16(nameBytes.length),u16(0));
+      parts.push(new Uint8Array(local), nameBytes, data);
+      const cd = [].concat(u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(dosTime),u16(dosDate),
+        u32(crc),u32(size),u32(size),u16(nameBytes.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset));
+      central.push({header:new Uint8Array(cd), name:nameBytes});
+      offset += local.length + nameBytes.length + data.length;
+    }
+    const centralStart=offset; let centralSize=0;
+    for(const c of central){ parts.push(c.header,c.name); centralSize += c.header.length + c.name.length; }
+    const end = [].concat(u32(0x06054b50),u16(0),u16(0),u16(central.length),u16(central.length),
+      u32(centralSize),u32(centralStart),u16(0));
+    parts.push(new Uint8Array(end));
+    return new Blob(parts,{type:"application/zip"});
+  }
+
+  function triggerDownload(blob, filename){
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=filename; a.style.display="none";
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
+  }
+
+  async function downloadZip(){
+    if(!tiles.length) return;
+    els.zip.disabled=true; const old=els.zip.textContent; els.zip.textContent="Packaging…";
+    try{
+      const folder = ((els.base.value||"atlas").trim().replace(/[\/\\:*?"<>|]/g,"_"))||"atlas";
+      const blob = await buildZip(tiles.map(t=>({name: folder+"/"+t.name, blob:t.blob})));
+      triggerDownload(blob, folder+"_tiles.zip");
+    }catch(err){ console.error(err); alert("Couldn't build the ZIP: "+(err&&err.message?err.message:err)); }
+    els.zip.textContent=old; els.zip.disabled=false;
+  }
+
+  /* ---------- flipbook GIF ---------- */
+  function computeGifSize(){
+    const {c,r}=gridDims();
+    if(els.gifSize.value==="match") return [Math.max(1,Math.round(img.width/c)), Math.max(1,Math.round(img.height/r))];
+    const S=parseInt(els.gifSize.value,10); return [S,S];
+  }
+  async function renderFrames(fw,fh){
+    const {c,r}=gridDims();
+    const mode=els.colorMode.value, gamma=parseFloat(els.gamma.value)||2.2, smooth=els.resample.value==="high";
+    const cv=document.createElement("canvas"); cv.width=fw; cv.height=fh;
+    const cx=cv.getContext("2d"); const frames=[]; const total=c*r;
+    for(let row=0;row<r;row++){
+      for(let col=0;col<c;col++){
+        const sx=bound(col,img.width,c),sxN=bound(col+1,img.width,c),sy=bound(row,img.height,r),syN=bound(row+1,img.height,r);
+        cx.clearRect(0,0,fw,fh); cx.imageSmoothingEnabled=smooth; cx.imageSmoothingQuality="high";
+        cx.drawImage(img, sx,sy,sxN-sx,syN-sy, 0,0,fw,fh);
+        applyColor(cx,fw,fh,mode,gamma);
+        frames.push(cx.getImageData(0,0,fw,fh).data);
+        const idx=row*c+col; els.gifProgress.textContent="Preparing frame "+(idx+1)+" / "+total;
+        if(idx%8===0) await new Promise(rq=>requestAnimationFrame(rq));
+      }
+    }
+    return frames;
+  }
+  async function renderGif(){
+    if(!img || typeof GIFEncoder!=="function"){ alert("GIF encoder unavailable."); return; }
+    const fps=clampInt(els.fps.value,1,60);
+    const [fw,fh]=computeGifSize();
+    const {c,r}=gridDims(); const total=c*r;
+    els.gifBtn.disabled=true; const old=els.gifBtn.textContent; els.gifBtn.textContent="Rendering…";
+    els.gifSection.style.display="block"; els.gifProgress.classList.add("show");
+    try{
+      const frames=await renderFrames(fw,fh);
+      const enc=new GIFEncoder(fw,fh);
+      enc.setRepeat(0); enc.setDelay(1000/fps); enc.setQuality(10); enc.start();
+      for(let i=0;i<frames.length;i++){
+        enc.addFrame(frames[i]);
+        els.gifProgress.textContent="Encoding frame "+(i+1)+" / "+total;
+        if(i%2===0) await new Promise(rq=>requestAnimationFrame(rq));
+      }
+      enc.finish();
+      const blob=new Blob([enc.out.toArray()],{type:"image/gif"});
+      const rd=new FileReader();                 // data URL renders reliably (blob: img fails in sandbox)
+      rd.onload=()=>{ els.gifImg.src=rd.result; };
+      rd.readAsDataURL(blob);
+      const kb=blob.size/1024, sizeStr = kb<1024 ? kb.toFixed(0)+" KB" : (kb/1024).toFixed(1)+" MB";
+      els.gifCount.textContent=total+" frames · "+fw+"×"+fh+" px · "+fps+" fps · "+sizeStr;
+      const fn=(((els.base.value||"atlas").trim().replace(/[\/\\:*?"<>|]/g,"_"))||"atlas")+"_flipbook.gif";
+      els.gifDl.onclick=()=>triggerDownload(blob, fn);
+    }catch(e){ console.error(e); alert("Couldn't render the GIF: "+(e&&e.message?e.message:e)); }
+    els.gifProgress.classList.remove("show"); els.gifBtn.textContent=old; els.gifBtn.disabled=false;
+    els.gifSection.scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
+  /* ---------- wiring ---------- */
+  $("#presets").addEventListener("click", e=>{
+    const b=e.target.closest(".chip"); if(!b) return;
+    els.cols.value=b.dataset.c; els.rows.value=b.dataset.r;
+    document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+    if(img) drawPreview(); else updateExample();
+  });
+  function syncChips(){
+    const {c,r}=gridDims();
+    document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on", +x.dataset.c===c && +x.dataset.r===r));
+  }
+  [els.cols,els.rows].forEach(inp=>inp.addEventListener("input",()=>{ if(img)drawPreview(); else updateExample(); syncChips(); }));
+  els.sizeMode.addEventListener("change",()=>{ els.customSize.style.display = els.sizeMode.value==="custom"?"block":"none"; });
+  els.colorMode.addEventListener("change",()=>{
+    const m=els.colorMode.value;
+    els.gammaField.style.display = m==="gamma"?"block":"none";
+    const hints={
+      none:"Pixels are exported exactly as they appear.",
+      s2l:"Linearizes color for engines that expect linear data. Note: 8-bit PNG can band — use for masks/experiments, not HDR.",
+      l2s:"Applies sRGB gamma encoding to linear source data.",
+      gamma:"Applies output = input^γ on 0–1 values. 8-bit PNG only."
+    };
+    els.colorHint.textContent = hints[m];
+    els.colorHint.classList.toggle("flag", m!=="none");
+  });
+  els.base.addEventListener("input",updateExample);
+  els.scheme.addEventListener("change",updateExample);
+  els.go.addEventListener("click",split);
+  els.zip.addEventListener("click",downloadZip);
+  els.fps.addEventListener("input",()=>{ els.fpsVal.textContent=clampInt(els.fps.value,1,60); });
+  els.gifSize.addEventListener("change",()=>{
+    if(img && els.gifSize.value==="match"){ const {c,r}=gridDims(); const fw=Math.round(img.width/c),fh=Math.round(img.height/r);
+      els.gifHint.textContent="Match tile size = "+fw+"×"+fh+" per frame. Large frames encode slowly and make big files."; }
+    else els.gifHint.textContent="Frames play in row-major order. GIF timing is limited to 1/100s, so very high fps can play slightly slower in some viewers.";
+  });
+  els.gifBtn.addEventListener("click",renderGif);
+
+  syncChips(); updateExample();
+})();
+</script>
+</body>
+</html>
